@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(wc:*)",
+      "Bash(grep:*)",
+      "Bash(go build:*)",
+      "Bash(./ledger-a:*)"
+    ]
+  }
+}
