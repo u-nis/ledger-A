@@ -147,7 +147,7 @@ func DefaultStyles() *Styles {
 		Bold(true)
 
 	s.TableBorder = lipgloss.NewStyle().
-		Foreground(ColorDarkGray)
+		Foreground(ColorMidGray)
 
 	s.EntryDescription = lipgloss.NewStyle().
 		Foreground(ColorLightGray)

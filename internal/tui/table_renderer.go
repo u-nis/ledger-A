@@ -66,7 +66,7 @@ func (r *TableRenderer) BuildBorderedBox(title string, contentLines []string, wi
 }
 
 // RenderTotalsRowCompact renders a compact totals row for split view
-func (r *TableRenderer) RenderTotalsRowCompact(day *ledger.Day, searchQuery string, descWidth, cadWidth, idrWidth int) string {
+func (r *TableRenderer) RenderTotalsRowCompact(day *ledger.Day, searchQuery string, descWidth, idrWidth, cadWidth int) string {
 	border := r.styles.TableBorder
 
 	label := "Total"
@@ -85,20 +85,18 @@ func (r *TableRenderer) RenderTotalsRowCompact(day *ledger.Day, searchQuery stri
 
 	var sb strings.Builder
 	sb.WriteString(border.Render("│"))
-	sb.WriteString("  ")
-	sb.WriteString(border.Render("│"))
 	sb.WriteString(" " + r.styles.TotalsLabel.Width(descWidth).Render(label) + " ")
 	sb.WriteString(border.Render("│"))
-	sb.WriteString(" " + r.styles.TotalsValue.Width(cadWidth).Render(formatCurrency(totalCAD, "CAD")) + " ")
-	sb.WriteString(border.Render("│"))
 	sb.WriteString(" " + r.styles.TotalsValue.Width(idrWidth).Render(formatCurrency(totalIDR, "IDR")) + " ")
+	sb.WriteString(border.Render("│"))
+	sb.WriteString(" " + r.styles.TotalsValue.Width(cadWidth).Render(formatCurrency(totalCAD, "CAD")) + " ")
 	sb.WriteString(border.Render("│"))
 
 	return sb.String()
 }
 
 // RenderTotalsRowWithWidth renders a totals row for full-width view
-func (r *TableRenderer) RenderTotalsRowWithWidth(day *ledger.Day, searchQuery string, descWidth, cadWidth, idrWidth int) string {
+func (r *TableRenderer) RenderTotalsRowWithWidth(day *ledger.Day, searchQuery string, descWidth, idrWidth, cadWidth int) string {
 	var sb strings.Builder
 	border := r.styles.TableBorder
 
@@ -117,25 +115,22 @@ func (r *TableRenderer) RenderTotalsRowWithWidth(day *ledger.Day, searchQuery st
 	}
 
 	sb.WriteString(border.Render("│"))
-	sb.WriteString("   ")
-	sb.WriteString(border.Render("│"))
 	sb.WriteString(" " + r.styles.TotalsLabel.Width(descWidth).Render(label) + " ")
 	sb.WriteString(border.Render("│"))
-	sb.WriteString(" " + r.styles.TotalsValue.Width(cadWidth).Render(formatCurrency(totalCAD, "CAD")) + " ")
-	sb.WriteString(border.Render("│"))
 	sb.WriteString(" " + r.styles.TotalsValue.Width(idrWidth).Render(formatCurrency(totalIDR, "IDR")) + " ")
+	sb.WriteString(border.Render("│"))
+	sb.WriteString(" " + r.styles.TotalsValue.Width(cadWidth).Render(formatCurrency(totalCAD, "CAD")) + " ")
 	sb.WriteString(border.Render("│"))
 
 	return sb.String()
 }
 
 // RowRenderer is a callback function for rendering individual table rows
-type RowRenderer func(idx int, entry *ledger.Entry, descWidth, cadWidth, idrWidth int) string
+type RowRenderer func(idx int, entry *ledger.Entry, descWidth, idrWidth, cadWidth int) string
 
 // RenderTableLines renders the table as individual lines for embedding in bordered panel
 func (r *TableRenderer) RenderTableLines(entries []*ledger.Entry, day *ledger.Day, searchQuery string, selectedIdx int, contentWidth, maxRows int, rowRenderer RowRenderer) []string {
-	cursorWidth := 2
-	borderOverhead := 13 // 4 borders + padding spaces
+	borderOverhead := 10 // 3 borders + padding spaces
 
 	// Responsive column widths based on available space
 	// Minimum widths to keep data readable
@@ -148,7 +143,7 @@ func (r *TableRenderer) RenderTableLines(entries []*ledger.Entry, day *ledger.Da
 	idealIDR := 14 // "Rp XX,XXX,XXX"
 
 	// Calculate available space for data columns
-	availableForData := contentWidth - cursorWidth - borderOverhead
+	availableForData := contentWidth - borderOverhead
 
 	// Start with ideal widths and scale down if needed
 	cadWidth := idealCAD
@@ -177,23 +172,21 @@ func (r *TableRenderer) RenderTableLines(entries []*ledger.Entry, day *ledger.Da
 	border := r.styles.TableBorder
 
 	// Top border
-	topBorder := border.Render("┌" + strings.Repeat("─", cursorWidth) + "┬" + strings.Repeat("─", descWidth+2) + "┬" + strings.Repeat("─", cadWidth+2) + "┬" + strings.Repeat("─", idrWidth+2) + "┐")
+	topBorder := border.Render("┌" + strings.Repeat("─", descWidth+2) + "┬" + strings.Repeat("─", idrWidth+2) + "┬" + strings.Repeat("─", cadWidth+2) + "┐")
 	lines = append(lines, topBorder)
 
 	// Header
 	header := border.Render("│") +
-		"  " +
-		border.Render("│") +
 		" " + r.styles.TableHeader.Width(descWidth).Render("Description") + " " +
 		border.Render("│") +
-		" " + r.styles.TableHeader.Width(cadWidth).Render("CAD") + " " +
-		border.Render("│") +
 		" " + r.styles.TableHeader.Width(idrWidth).Render("IDR") + " " +
+		border.Render("│") +
+		" " + r.styles.TableHeader.Width(cadWidth).Render("CAD") + " " +
 		border.Render("│")
 	lines = append(lines, header)
 
 	// Header separator
-	headerSep := border.Render("├" + strings.Repeat("─", cursorWidth) + "┼" + strings.Repeat("─", descWidth+2) + "┼" + strings.Repeat("─", cadWidth+2) + "┼" + strings.Repeat("─", idrWidth+2) + "┤")
+	headerSep := border.Render("├" + strings.Repeat("─", descWidth+2) + "┼" + strings.Repeat("─", idrWidth+2) + "┼" + strings.Repeat("─", cadWidth+2) + "┤")
 	lines = append(lines, headerSep)
 
 	// Calculate visible rows
@@ -204,12 +197,12 @@ func (r *TableRenderer) RenderTableLines(entries []*ledger.Entry, day *ledger.Da
 
 	// Rows
 	if len(entries) == 0 {
-		emptyRow := border.Render("│") + "  " + border.Render("│") +
+		emptyRow := border.Render("│") +
 			" " + r.styles.Subtitle.Width(descWidth).Render(truncateStr("No entries", descWidth)) + " " +
 			border.Render("│") +
-			" " + lipgloss.NewStyle().Width(cadWidth).Render("") + " " +
-			border.Render("│") +
 			" " + lipgloss.NewStyle().Width(idrWidth).Render("") + " " +
+			border.Render("│") +
+			" " + lipgloss.NewStyle().Width(cadWidth).Render("") + " " +
 			border.Render("│")
 		lines = append(lines, emptyRow)
 	} else {
@@ -234,21 +227,21 @@ func (r *TableRenderer) RenderTableLines(entries []*ledger.Entry, day *ledger.Da
 
 		for i := startIdx; i < endIdx; i++ {
 			entry := entries[i]
-			row := rowRenderer(i, entry, descWidth, cadWidth, idrWidth)
+			row := rowRenderer(i, entry, descWidth, idrWidth, cadWidth)
 			lines = append(lines, row)
 		}
 	}
 
 	// Separator before totals
-	totalsSep := border.Render("├" + strings.Repeat("─", cursorWidth) + "┼" + strings.Repeat("─", descWidth+2) + "┼" + strings.Repeat("─", cadWidth+2) + "┼" + strings.Repeat("─", idrWidth+2) + "┤")
+	totalsSep := border.Render("├" + strings.Repeat("─", descWidth+2) + "┼" + strings.Repeat("─", idrWidth+2) + "┼" + strings.Repeat("─", cadWidth+2) + "┤")
 	lines = append(lines, totalsSep)
 
 	// Totals row
-	totalsRow := r.RenderTotalsRowCompact(day, searchQuery, descWidth, cadWidth, idrWidth)
+	totalsRow := r.RenderTotalsRowCompact(day, searchQuery, descWidth, idrWidth, cadWidth)
 	lines = append(lines, totalsRow)
 
 	// Bottom border
-	bottomBorder := border.Render("└" + strings.Repeat("─", cursorWidth) + "┴" + strings.Repeat("─", descWidth+2) + "┴" + strings.Repeat("─", cadWidth+2) + "┴" + strings.Repeat("─", idrWidth+2) + "┘")
+	bottomBorder := border.Render("└" + strings.Repeat("─", descWidth+2) + "┴" + strings.Repeat("─", idrWidth+2) + "┴" + strings.Repeat("─", cadWidth+2) + "┘")
 	lines = append(lines, bottomBorder)
 
 	return lines
