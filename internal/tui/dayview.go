@@ -421,7 +421,7 @@ func (m DayViewModel) renderTableLines(contentWidth, maxRows int) []string {
 }
 
 // renderTableRowCompact renders a compact table row for split view
-func (m DayViewModel) renderTableRowCompact(idx int, entry *ledger.Entry, descWidth, cadWidth, idrWidth int) string {
+func (m DayViewModel) renderTableRowCompact(idx int, entry *ledger.Entry, descWidth, idrWidth, cadWidth int) string {
 	border := m.styles.TableBorder
 
 	rowStyle := m.styles.TableRow
@@ -431,26 +431,19 @@ func (m DayViewModel) renderTableRowCompact(idx int, entry *ledger.Entry, descWi
 
 	var sb strings.Builder
 	sb.WriteString(border.Render("│"))
-	if idx == m.selectedIdx {
-		sb.WriteString("► ")
-	} else {
-		sb.WriteString("  ")
-	}
-	sb.WriteString(border.Render("│"))
 
 	desc := truncateStr(entry.Description, descWidth)
+	// Add "► " prefix for selected row
+	if idx == m.selectedIdx {
+		if len(desc) > descWidth-2 {
+			desc = truncateStr(desc, descWidth-2)
+		}
+		desc = "► " + desc
+	}
 	sb.WriteString(" " + rowStyle.Width(descWidth).Render(desc) + " ")
 	sb.WriteString(border.Render("│"))
 
-	cadStyle := m.styles.ValueNeutral
-	if entry.CAD > 0 {
-		cadStyle = m.styles.ValuePositive
-	} else if entry.CAD < 0 {
-		cadStyle = m.styles.ValueNegative
-	}
-	sb.WriteString(" " + cadStyle.Width(cadWidth).Render(formatCurrency(entry.CAD, "CAD")) + " ")
-	sb.WriteString(border.Render("│"))
-
+	// IDR first
 	idrStyle := m.styles.ValueNeutral
 	if entry.IDR > 0 {
 		idrStyle = m.styles.ValuePositive
@@ -460,6 +453,16 @@ func (m DayViewModel) renderTableRowCompact(idx int, entry *ledger.Entry, descWi
 	sb.WriteString(" " + idrStyle.Width(idrWidth).Render(formatCurrency(entry.IDR, "IDR")) + " ")
 	sb.WriteString(border.Render("│"))
 
+	// CAD second
+	cadStyle := m.styles.ValueNeutral
+	if entry.CAD > 0 {
+		cadStyle = m.styles.ValuePositive
+	} else if entry.CAD < 0 {
+		cadStyle = m.styles.ValueNegative
+	}
+	sb.WriteString(" " + cadStyle.Width(cadWidth).Render(formatCurrency(entry.CAD, "CAD")) + " ")
+	sb.WriteString(border.Render("│"))
+
 	return sb.String()
 }
 
@@ -467,10 +470,9 @@ func (m DayViewModel) renderTableWithWidth(panelWidth, maxRows int) string {
 	// Fixed widths for CAD and IDR columns
 	cadWidth := 14
 	idrWidth := 16
-	cursorWidth := 3
 
 	// Calculate description width based on available panel width
-	descWidth := panelWidth - cadWidth - idrWidth - cursorWidth - 16
+	descWidth := panelWidth - cadWidth - idrWidth - 12
 	if descWidth < 15 {
 		descWidth = 15
 	}
@@ -479,23 +481,21 @@ func (m DayViewModel) renderTableWithWidth(panelWidth, maxRows int) string {
 	border := m.styles.TableBorder
 
 	// Top border
-	sb.WriteString(border.Render("┌" + strings.Repeat("─", cursorWidth) + "┬" + strings.Repeat("─", descWidth+2) + "┬" + strings.Repeat("─", cadWidth+2) + "┬" + strings.Repeat("─", idrWidth+2) + "┐"))
+	sb.WriteString(border.Render("┌" + strings.Repeat("─", descWidth+2) + "┬" + strings.Repeat("─", idrWidth+2) + "┬" + strings.Repeat("─", cadWidth+2) + "┐"))
 	sb.WriteString("\n")
 
 	// Header
 	sb.WriteString(border.Render("│"))
-	sb.WriteString(" " + m.styles.TableHeader.Width(1).Render(" ") + " ")
-	sb.WriteString(border.Render("│"))
 	sb.WriteString(" " + m.styles.TableHeader.Width(descWidth).Render("Description") + " ")
 	sb.WriteString(border.Render("│"))
-	sb.WriteString(" " + m.styles.TableHeader.Width(cadWidth).Render("CAD") + " ")
-	sb.WriteString(border.Render("│"))
 	sb.WriteString(" " + m.styles.TableHeader.Width(idrWidth).Render("IDR") + " ")
+	sb.WriteString(border.Render("│"))
+	sb.WriteString(" " + m.styles.TableHeader.Width(cadWidth).Render("CAD") + " ")
 	sb.WriteString(border.Render("│"))
 	sb.WriteString("\n")
 
 	// Header separator
-	sb.WriteString(border.Render("├" + strings.Repeat("─", cursorWidth) + "┼" + strings.Repeat("─", descWidth+2) + "┼" + strings.Repeat("─", cadWidth+2) + "┼" + strings.Repeat("─", idrWidth+2) + "┤"))
+	sb.WriteString(border.Render("├" + strings.Repeat("─", descWidth+2) + "┼" + strings.Repeat("─", idrWidth+2) + "┼" + strings.Repeat("─", cadWidth+2) + "┤"))
 	sb.WriteString("\n")
 
 	// Calculate visible rows
@@ -507,17 +507,15 @@ func (m DayViewModel) renderTableWithWidth(panelWidth, maxRows int) string {
 	// Rows
 	if len(m.entries) == 0 {
 		sb.WriteString(border.Render("│"))
-		sb.WriteString("   ")
-		sb.WriteString(border.Render("│"))
 		emptyMsg := "No entries"
 		if m.search.HasQuery() {
 			emptyMsg = "No matches for '" + m.search.GetQuery() + "'"
 		}
 		sb.WriteString(" " + m.styles.Subtitle.Width(descWidth).Render(truncateStr(emptyMsg, descWidth)) + " ")
 		sb.WriteString(border.Render("│"))
-		sb.WriteString(" " + lipgloss.NewStyle().Width(cadWidth).Render("") + " ")
-		sb.WriteString(border.Render("│"))
 		sb.WriteString(" " + lipgloss.NewStyle().Width(idrWidth).Render("") + " ")
+		sb.WriteString(border.Render("│"))
+		sb.WriteString(" " + lipgloss.NewStyle().Width(cadWidth).Render("") + " ")
 		sb.WriteString(border.Render("│"))
 		sb.WriteString("\n")
 	} else {
@@ -543,37 +541,32 @@ func (m DayViewModel) renderTableWithWidth(panelWidth, maxRows int) string {
 
 		for i := startIdx; i < endIdx; i++ {
 			entry := m.entries[i]
-			sb.WriteString(m.renderTableRowWithWidth(i, entry, descWidth, cadWidth, idrWidth))
+			sb.WriteString(m.renderTableRowWithWidth(i, entry, descWidth, idrWidth, cadWidth))
 			sb.WriteString("\n")
 		}
 	}
 
 	// Separator before totals
-	sb.WriteString(border.Render("├" + strings.Repeat("─", cursorWidth) + "┼" + strings.Repeat("─", descWidth+2) + "┼" + strings.Repeat("─", cadWidth+2) + "┼" + strings.Repeat("─", idrWidth+2) + "┤"))
+	sb.WriteString(border.Render("├" + strings.Repeat("─", descWidth+2) + "┼" + strings.Repeat("─", idrWidth+2) + "┼" + strings.Repeat("─", cadWidth+2) + "┤"))
 	sb.WriteString("\n")
 
 	// Totals row
-	sb.WriteString(m.tableRenderer.RenderTotalsRowWithWidth(m.day, m.search.GetQuery(), descWidth, cadWidth, idrWidth))
+	sb.WriteString(m.tableRenderer.RenderTotalsRowWithWidth(m.day, m.search.GetQuery(), descWidth, idrWidth, cadWidth))
 	sb.WriteString("\n")
 
 	// Bottom border
-	sb.WriteString(border.Render("└" + strings.Repeat("─", cursorWidth) + "┴" + strings.Repeat("─", descWidth+2) + "┴" + strings.Repeat("─", cadWidth+2) + "┴" + strings.Repeat("─", idrWidth+2) + "┘"))
+	sb.WriteString(border.Render("└" + strings.Repeat("─", descWidth+2) + "┴" + strings.Repeat("─", idrWidth+2) + "┴" + strings.Repeat("─", cadWidth+2) + "┘"))
 
 	return sb.String()
 }
 
 func (m DayViewModel) renderTableRow(idx int, entry *ledger.Entry, descWidth int) string {
-	return m.renderTableRowWithWidth(idx, entry, descWidth, 14, 16)
+	return m.renderTableRowWithWidth(idx, entry, descWidth, 16, 14)
 }
 
-func (m DayViewModel) renderTableRowWithWidth(idx int, entry *ledger.Entry, descWidth, cadWidth, idrWidth int) string {
+func (m DayViewModel) renderTableRowWithWidth(idx int, entry *ledger.Entry, descWidth, idrWidth, cadWidth int) string {
 	var sb strings.Builder
 	border := m.styles.TableBorder
-
-	cursor := " "
-	if idx == m.selectedIdx {
-		cursor = m.styles.Cursor.Render("►")
-	}
 
 	rowStyle := m.styles.TableRow
 	if idx == m.selectedIdx {
@@ -581,22 +574,19 @@ func (m DayViewModel) renderTableRowWithWidth(idx int, entry *ledger.Entry, desc
 	}
 
 	sb.WriteString(border.Render("│"))
-	sb.WriteString(" " + cursor + " ")
-	sb.WriteString(border.Render("│"))
 
 	desc := truncateStr(entry.Description, descWidth)
+	// Add "► " prefix for selected row
+	if idx == m.selectedIdx {
+		if len(desc) > descWidth-2 {
+			desc = truncateStr(desc, descWidth-2)
+		}
+		desc = "► " + desc
+	}
 	sb.WriteString(" " + rowStyle.Width(descWidth).Render(desc) + " ")
 	sb.WriteString(border.Render("│"))
 
-	cadStyle := m.styles.ValueNeutral
-	if entry.CAD > 0 {
-		cadStyle = m.styles.ValuePositive
-	} else if entry.CAD < 0 {
-		cadStyle = m.styles.ValueNegative
-	}
-	sb.WriteString(" " + cadStyle.Width(cadWidth).Render(formatCurrency(entry.CAD, "CAD")) + " ")
-	sb.WriteString(border.Render("│"))
-
+	// IDR first
 	idrStyle := m.styles.ValueNeutral
 	if entry.IDR > 0 {
 		idrStyle = m.styles.ValuePositive
@@ -606,11 +596,21 @@ func (m DayViewModel) renderTableRowWithWidth(idx int, entry *ledger.Entry, desc
 	sb.WriteString(" " + idrStyle.Width(idrWidth).Render(formatCurrency(entry.IDR, "IDR")) + " ")
 	sb.WriteString(border.Render("│"))
 
+	// CAD second
+	cadStyle := m.styles.ValueNeutral
+	if entry.CAD > 0 {
+		cadStyle = m.styles.ValuePositive
+	} else if entry.CAD < 0 {
+		cadStyle = m.styles.ValueNegative
+	}
+	sb.WriteString(" " + cadStyle.Width(cadWidth).Render(formatCurrency(entry.CAD, "CAD")) + " ")
+	sb.WriteString(border.Render("│"))
+
 	return sb.String()
 }
 
 func (m DayViewModel) renderTotalsRow(descWidth int) string {
-	return m.tableRenderer.RenderTotalsRowWithWidth(m.day, m.search.GetQuery(), descWidth, 14, 16)
+	return m.tableRenderer.RenderTotalsRowWithWidth(m.day, m.search.GetQuery(), descWidth, 16, 14)
 }
 
 func (m DayViewModel) renderHelp() string {

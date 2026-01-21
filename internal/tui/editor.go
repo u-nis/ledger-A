@@ -40,8 +40,8 @@ type Column int
 
 const (
 	ColDescription Column = iota
-	ColCAD
 	ColIDR
+	ColCAD
 )
 
 // EditorModel represents the day editor with vim-style keybindings
@@ -96,6 +96,14 @@ func NewEditorModel(styles *Styles, day *ledger.Day, converter *currency.Convert
 	journalTextarea.Placeholder = "Write your journal entry here..."
 	journalTextarea.ShowLineNumbers = false
 	journalTextarea.CharLimit = 0 // No limit
+	journalTextarea.EndOfBufferCharacter = ' ' // Hide the end-of-buffer tilde
+	journalTextarea.Prompt = "" // No prompt
+	journalTextarea.FocusedStyle.CursorLine = lipgloss.NewStyle() // Remove cursor line styling
+	journalTextarea.FocusedStyle.EndOfBuffer = lipgloss.NewStyle() // Remove end of buffer styling
+	journalTextarea.FocusedStyle.LineNumber = lipgloss.NewStyle() // Remove line number styling
+	journalTextarea.BlurredStyle.CursorLine = lipgloss.NewStyle()
+	journalTextarea.BlurredStyle.EndOfBuffer = lipgloss.NewStyle()
+	journalTextarea.BlurredStyle.LineNumber = lipgloss.NewStyle()
 
 	m := EditorModel{
 		day:             day,
@@ -189,7 +197,7 @@ func (m EditorModel) updateNormal(msg tea.Msg) (EditorModel, tea.Cmd, EditorActi
 				m.selectedCol--
 			}
 		case "right":
-			if m.selectedCol < ColIDR {
+			if m.selectedCol < ColCAD {
 				m.selectedCol++
 			}
 		case "/":
@@ -302,12 +310,12 @@ func (m EditorModel) updateInlineEdit(msg tea.Msg) (EditorModel, tea.Cmd, Editor
 		case "tab":
 			// Save current and move to next column
 			m.saveCurrentCell(entry)
-			if m.selectedCol < ColIDR {
+			if m.selectedCol < ColCAD {
 				m.selectedCol++
 				m.startInlineEdit()
 				return m, textinput.Blink, EditorActionNone
 			} else {
-				// At IDR, tab wraps - but if new entry, save instead
+				// At CAD, tab wraps - but if new entry, save instead
 				if m.isNewEntry {
 					return m.finishEdit(entry, true)
 				}
@@ -336,7 +344,7 @@ func (m EditorModel) updateInlineEdit(msg tea.Msg) (EditorModel, tea.Cmd, Editor
 					m.isNewEntry = false
 					return m, nil, EditorActionNone
 				}
-				m.selectedCol = ColIDR
+				m.selectedCol = ColCAD
 				m.startInlineEdit()
 				return m, textinput.Blink, EditorActionNone
 			}
@@ -367,7 +375,7 @@ func (m EditorModel) updateInlineEdit(msg tea.Msg) (EditorModel, tea.Cmd, Editor
 
 		case "enter":
 			m.saveCurrentCell(entry)
-			// If in description column and this is a new entry, move to CAD
+			// If in description column and this is a new entry, move to IDR
 			if m.selectedCol == ColDescription && m.isNewEntry {
 				if entry.Description == "" {
 					// Empty description, cancel
@@ -378,7 +386,7 @@ func (m EditorModel) updateInlineEdit(msg tea.Msg) (EditorModel, tea.Cmd, Editor
 					m.isNewEntry = false
 					return m, nil, EditorActionNone
 				}
-				m.selectedCol = ColCAD
+				m.selectedCol = ColIDR
 				m.startInlineEdit()
 				return m, textinput.Blink, EditorActionNone
 			}
@@ -392,13 +400,13 @@ func (m EditorModel) updateInlineEdit(msg tea.Msg) (EditorModel, tea.Cmd, Editor
 			// In add mode, if in CAD/IDR and haven't typed yet, navigate between columns
 			if m.isNewEntry && !m.hasTypedInCell && (m.selectedCol == ColCAD || m.selectedCol == ColIDR) {
 				m.saveCurrentCell(entry)
-				if m.selectedCol == ColIDR {
-					// Move from IDR to CAD
-					m.selectedCol = ColCAD
+				if m.selectedCol == ColCAD {
+					// Move from CAD to IDR
+					m.selectedCol = ColIDR
 					m.startInlineEdit()
 					return m, textinput.Blink, EditorActionNone
-				} else if m.selectedCol == ColCAD {
-					// Move from CAD back to description - save and exit to normal
+				} else if m.selectedCol == ColIDR {
+					// Move from IDR back to description - save and exit to normal
 					m.mode = EditorModeNormal
 					m.editOriginal = nil
 					m.isNewEntry = false
@@ -411,13 +419,13 @@ func (m EditorModel) updateInlineEdit(msg tea.Msg) (EditorModel, tea.Cmd, Editor
 			// In add mode, if in CAD/IDR and haven't typed yet, navigate between columns
 			if m.isNewEntry && !m.hasTypedInCell && (m.selectedCol == ColCAD || m.selectedCol == ColIDR) {
 				m.saveCurrentCell(entry)
-				if m.selectedCol == ColCAD {
-					// Move from CAD to IDR
-					m.selectedCol = ColIDR
+				if m.selectedCol == ColIDR {
+					// Move from IDR to CAD
+					m.selectedCol = ColCAD
 					m.startInlineEdit()
 					return m, textinput.Blink, EditorActionNone
 				}
-				// At IDR and pressing right - just stay here
+				// At CAD and pressing right - just stay here
 				return m, nil, EditorActionNone
 			}
 			// Otherwise, let textinput handle cursor movement
@@ -426,6 +434,10 @@ func (m EditorModel) updateInlineEdit(msg tea.Msg) (EditorModel, tea.Cmd, Editor
 			// Track typing for CAD/IDR navigation behavior
 			key := msg.String()
 			if len(key) == 1 || key == "backspace" || key == "delete" {
+				// For currency fields, on first typing, clear the value to allow replacement
+				if !m.hasTypedInCell && (m.selectedCol == ColCAD || m.selectedCol == ColIDR) && len(key) == 1 {
+					m.editInput.SetValue("")
+				}
 				m.hasTypedInCell = true
 			}
 		}
@@ -612,21 +624,35 @@ func (m EditorModel) View() string {
 		return m.renderSplitView(title, footer)
 	}
 
-	// Single panel mode: show full-width ledger (journal accessible via 'j' key)
-	innerWidth := m.width - 4
-	availableHeight := m.height - 8
-	content := m.renderLeftPanelWithWidth(innerWidth, availableHeight)
-	return RenderBoxWithTitle(content, title, footer, m.notification, m.width, m.height)
+	// Single panel mode: show centered ledger (journal accessible via 'j' key)
+	panelWidth := m.width
+	panelHeight := m.height - 3 // Ribbon + footer (no extra spacing)
+	ledgerPanel := m.buildLedgerPanel(panelWidth, panelHeight)
+
+	// Build view with centered ledger panel
+	var view strings.Builder
+
+	// Ledger panel
+	view.WriteString(ledgerPanel)
+	view.WriteString("\n")
+
+	// Ribbon with mode and date
+	view.WriteString(m.renderTopRibbon(title))
+	view.WriteString("\n")
+
+	// Footer
+	view.WriteString(footer)
+
+	return view.String()
 }
 
 // renderSplitView renders the split view with ledger on left and journal on right
 func (m EditorModel) renderSplitView(title, footer string) string {
 	// Asymmetric split: ledger gets 65%, journal gets 35%
-	// This allows the table to have more room for data
-	totalWidth := m.width - 4
+	totalWidth := m.width
 	leftPanelWidth := (totalWidth * 65) / 100
 	rightPanelWidth := totalWidth - leftPanelWidth
-	panelHeight := m.height - 6 // Leave room for title and footer
+	panelHeight := m.height - 3 // Ribbon + footer (no extra spacing)
 
 	// Build the two panels independently
 	leftPanel := m.buildLedgerPanel(leftPanelWidth, panelHeight)
@@ -635,35 +661,86 @@ func (m EditorModel) renderSplitView(title, footer string) string {
 	// Join panels side by side
 	splitContent := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 
-	// Build final view with title at top and footer at bottom
+	// Build final view
 	var view strings.Builder
-
-	// Top border with title
-	titleDisplay := "─── " + title + " ───"
-	leftPad := (m.width - len(titleDisplay)) / 2
-	if leftPad < 0 {
-		leftPad = 0
-	}
-	view.WriteString(strings.Repeat(" ", leftPad) + m.styles.Title.Render(titleDisplay))
-	view.WriteString("\n")
-
-	// Notification in top right if present
-	if m.notification != "" {
-		// Move cursor up and to the right for notification
-		notif := m.styles.Notification.Render(" " + m.notification + " ")
-		view.WriteString(strings.Repeat(" ", m.width-len(m.notification)-4) + notif + "\n")
-	} else {
-		view.WriteString("\n")
-	}
 
 	// Split content
 	view.WriteString(splitContent)
+	view.WriteString("\n")
+
+	// Ribbon with mode and date
+	view.WriteString(m.renderTopRibbon(title))
 	view.WriteString("\n")
 
 	// Footer
 	view.WriteString(footer)
 
 	return view.String()
+}
+
+// renderTopRibbon creates a vim-style ribbon combining mode and date
+func (m EditorModel) renderTopRibbon(date string) string {
+	// Get mode text
+	var modeText string
+	switch m.mode {
+	case EditorModeSearch:
+		modeText = "SEARCH"
+	case EditorModeInlineEdit:
+		if m.isNewEntry {
+			modeText = "ADD"
+		} else {
+			modeText = "EDIT"
+		}
+	case EditorModeScreenTime:
+		modeText = "SCREEN TIME"
+	case EditorModeJournal:
+		modeText = "JOURNAL"
+	default:
+		if m.pendingDelete {
+			modeText = "d..."
+		} else {
+			modeText = "NORMAL"
+		}
+	}
+
+	modeIndicator := "-- " + modeText + " --"
+
+	// Build ribbon content: mode on left, date on right
+	leftPart := modeIndicator
+	rightPart := date
+
+	// Calculate spacing
+	leftWidth := lipgloss.Width(leftPart)
+	rightWidth := lipgloss.Width(rightPart)
+	totalContentWidth := leftWidth + rightWidth
+
+	var ribbonContent string
+	if totalContentWidth+4 <= m.width {
+		// Enough space for both with spacing
+		spacing := m.width - totalContentWidth - 4 // -4 for padding (2 on each side)
+		ribbonContent = "  " + leftPart + strings.Repeat(" ", spacing) + rightPart + "  "
+	} else {
+		// Not enough space, just show mode centered
+		ribbonContent = lipgloss.NewStyle().Width(m.width).Align(lipgloss.Center).Render(leftPart)
+	}
+
+	// Apply vim-style ribbon styling (light bg, dark fg)
+	ribbon := lipgloss.NewStyle().
+		Background(ColorLightGray).
+		Foreground(ColorBlack).
+		Width(m.width).
+		Render(ribbonContent)
+
+	// Add notification if present
+	if m.notification != "" {
+		notifStyle := m.styles.Notification
+		if m.notifyError {
+			notifStyle = m.styles.NotificationError
+		}
+		return ribbon + "\n" + notifStyle.Render(m.notification)
+	}
+
+	return ribbon
 }
 
 // buildLedgerPanel builds a complete bordered panel for the ledger
@@ -673,26 +750,31 @@ func (m EditorModel) buildLedgerPanel(width, height int) string {
 
 	var lines []string
 
-	// Mode indicator
-	lines = append(lines, m.renderModeIndicator())
-
-	// Screen time
-	screenTime := "not set"
-	if m.day.ScreenTime != "" {
-		screenTime = m.day.ScreenTime
+	// Screen time - centered
+	var screenTimeLine string
+	if m.mode == EditorModeScreenTime {
+		// Editing mode - show input inline
+		screenTimeLine = m.styles.InputLabel.Render("Screen Time: ") + m.screenTimeInput.View()
+	} else {
+		// Display mode
+		screenTime := "not set"
+		if m.day.ScreenTime != "" {
+			screenTime = m.day.ScreenTime
+		}
+		screenTimeLine = m.styles.Subtitle.Render("Screen Time: " + screenTime)
 	}
-	lines = append(lines, m.styles.Subtitle.Render("Screen Time: "+screenTime))
+	// Center the screen time line
+	lineWidth := lipgloss.Width(screenTimeLine)
+	if lineWidth < contentWidth {
+		leftPad := (contentWidth - lineWidth) / 2
+		screenTimeLine = strings.Repeat(" ", leftPad) + screenTimeLine
+	}
+	lines = append(lines, screenTimeLine)
 	lines = append(lines, "")
 
 	// Search bar if active
 	if m.mode == EditorModeSearch || m.search.HasQuery() {
 		lines = append(lines, m.search.View())
-		lines = append(lines, "")
-	}
-
-	// Screen time form if active
-	if m.mode == EditorModeScreenTime {
-		lines = append(lines, m.renderScreenTimeForm())
 		lines = append(lines, "")
 	}
 
@@ -1264,7 +1346,7 @@ func (m EditorModel) renderTableLines(contentWidth, maxRows int) []string {
 }
 
 // renderTableRowCompact renders a compact table row for split view
-func (m EditorModel) renderTableRowCompact(idx int, entry *ledger.Entry, descWidth, cadWidth, idrWidth int) string {
+func (m EditorModel) renderTableRowCompact(idx int, entry *ledger.Entry, descWidth, idrWidth, cadWidth int) string {
 	border := m.styles.TableBorder
 
 	isSelected := idx == m.selectedRow
@@ -1272,22 +1354,21 @@ func (m EditorModel) renderTableRowCompact(idx int, entry *ledger.Entry, descWid
 
 	var sb strings.Builder
 
-	// Cursor column (compact - 2 chars)
+	// First column (description) - add prefix to indicate selection
 	sb.WriteString(border.Render("│"))
-	if isSelected {
-		sb.WriteString("► ")
-	} else {
-		sb.WriteString("  ")
-	}
-	sb.WriteString(border.Render("│"))
-
-	// Description column
 	if isEditing && m.selectedCol == ColDescription {
 		m.editInput.Width = descWidth
 		inputView := m.editInput.View()
 		sb.WriteString(" " + lipgloss.NewStyle().Width(descWidth).Render(inputView) + " ")
 	} else {
 		descDisplay := truncateStr(entry.Description, descWidth)
+		// Add "► " prefix for selected row
+		if isSelected {
+			if len(descDisplay) > descWidth-2 {
+				descDisplay = truncateStr(descDisplay, descWidth-2)
+			}
+			descDisplay = "► " + descDisplay
+		}
 		if isSelected && m.selectedCol == ColDescription {
 			sb.WriteString(" " + m.styles.TableRowSelected.Width(descWidth).Render(descDisplay) + " ")
 		} else {
@@ -1296,28 +1377,7 @@ func (m EditorModel) renderTableRowCompact(idx int, entry *ledger.Entry, descWid
 	}
 	sb.WriteString(border.Render("│"))
 
-	// CAD column
-	if isEditing && m.selectedCol == ColCAD {
-		m.editInput.Width = cadWidth - 1
-		inputView := m.editInput.View()
-		sb.WriteString(" $" + lipgloss.NewStyle().Width(cadWidth-1).Render(inputView) + " ")
-	} else {
-		cadDisplay := formatCurrency(entry.CAD, "CAD")
-		cadStyle := m.styles.ValueNeutral
-		if entry.CAD > 0 {
-			cadStyle = m.styles.ValuePositive
-		} else if entry.CAD < 0 {
-			cadStyle = m.styles.ValueNegative
-		}
-		if isSelected && m.selectedCol == ColCAD {
-			sb.WriteString(" " + m.styles.TableRowSelected.Width(cadWidth).Render(cadDisplay) + " ")
-		} else {
-			sb.WriteString(" " + cadStyle.Width(cadWidth).Render(cadDisplay) + " ")
-		}
-	}
-	sb.WriteString(border.Render("│"))
-
-	// IDR column
+	// IDR column (now first)
 	if isEditing && m.selectedCol == ColIDR {
 		m.editInput.Width = idrWidth - 3
 		inputView := m.editInput.View()
@@ -1338,6 +1398,27 @@ func (m EditorModel) renderTableRowCompact(idx int, entry *ledger.Entry, descWid
 	}
 	sb.WriteString(border.Render("│"))
 
+	// CAD column (now second)
+	if isEditing && m.selectedCol == ColCAD {
+		m.editInput.Width = cadWidth - 1
+		inputView := m.editInput.View()
+		sb.WriteString(" $" + lipgloss.NewStyle().Width(cadWidth-1).Render(inputView) + " ")
+	} else {
+		cadDisplay := formatCurrency(entry.CAD, "CAD")
+		cadStyle := m.styles.ValueNeutral
+		if entry.CAD > 0 {
+			cadStyle = m.styles.ValuePositive
+		} else if entry.CAD < 0 {
+			cadStyle = m.styles.ValueNegative
+		}
+		if isSelected && m.selectedCol == ColCAD {
+			sb.WriteString(" " + m.styles.TableRowSelected.Width(cadWidth).Render(cadDisplay) + " ")
+		} else {
+			sb.WriteString(" " + cadStyle.Width(cadWidth).Render(cadDisplay) + " ")
+		}
+	}
+	sb.WriteString(border.Render("│"))
+
 	return sb.String()
 }
 
@@ -1345,11 +1426,10 @@ func (m EditorModel) renderTableWithWidth(panelWidth, maxRows int) string {
 	// Fixed widths for CAD and IDR columns
 	cadWidth := 14
 	idrWidth := 16
-	cursorWidth := 3
 
 	// Calculate description width based on available panel width
-	// Total table width: cursor(3) + desc + cad(14) + idr(16) + borders(8) + padding(8)
-	descWidth := panelWidth - cadWidth - idrWidth - cursorWidth - 16
+	// Total table width: desc + cad(14) + idr(16) + borders(6) + padding(6)
+	descWidth := panelWidth - cadWidth - idrWidth - 12
 	if descWidth < 15 {
 		descWidth = 15
 	}
@@ -1358,23 +1438,21 @@ func (m EditorModel) renderTableWithWidth(panelWidth, maxRows int) string {
 	border := m.styles.TableBorder
 
 	// Top border
-	sb.WriteString(border.Render("┌" + strings.Repeat("─", cursorWidth) + "┬" + strings.Repeat("─", descWidth+2) + "┬" + strings.Repeat("─", cadWidth+2) + "┬" + strings.Repeat("─", idrWidth+2) + "┐"))
+	sb.WriteString(border.Render("┌" + strings.Repeat("─", descWidth+2) + "┬" + strings.Repeat("─", idrWidth+2) + "┬" + strings.Repeat("─", cadWidth+2) + "┐"))
 	sb.WriteString("\n")
 
 	// Header
 	sb.WriteString(border.Render("│"))
-	sb.WriteString(" " + m.styles.TableHeader.Width(1).Render(" ") + " ")
-	sb.WriteString(border.Render("│"))
 	sb.WriteString(" " + m.styles.TableHeader.Width(descWidth).Render("Description") + " ")
 	sb.WriteString(border.Render("│"))
-	sb.WriteString(" " + m.styles.TableHeader.Width(cadWidth).Render("CAD") + " ")
-	sb.WriteString(border.Render("│"))
 	sb.WriteString(" " + m.styles.TableHeader.Width(idrWidth).Render("IDR") + " ")
+	sb.WriteString(border.Render("│"))
+	sb.WriteString(" " + m.styles.TableHeader.Width(cadWidth).Render("CAD") + " ")
 	sb.WriteString(border.Render("│"))
 	sb.WriteString("\n")
 
 	// Header separator
-	sb.WriteString(border.Render("├" + strings.Repeat("─", cursorWidth) + "┼" + strings.Repeat("─", descWidth+2) + "┼" + strings.Repeat("─", cadWidth+2) + "┼" + strings.Repeat("─", idrWidth+2) + "┤"))
+	sb.WriteString(border.Render("├" + strings.Repeat("─", descWidth+2) + "┼" + strings.Repeat("─", idrWidth+2) + "┼" + strings.Repeat("─", cadWidth+2) + "┤"))
 	sb.WriteString("\n")
 
 	// Calculate visible rows (subtract header and footer from maxRows)
@@ -1386,17 +1464,15 @@ func (m EditorModel) renderTableWithWidth(panelWidth, maxRows int) string {
 	// Rows
 	if len(m.entries) == 0 {
 		sb.WriteString(border.Render("│"))
-		sb.WriteString("   ")
-		sb.WriteString(border.Render("│"))
 		emptyMsg := "No entries. Press 'a' to add."
 		if m.search.HasQuery() {
 			emptyMsg = "No matches for '" + m.search.GetQuery() + "'"
 		}
 		sb.WriteString(" " + m.styles.Subtitle.Width(descWidth).Render(truncateStr(emptyMsg, descWidth)) + " ")
 		sb.WriteString(border.Render("│"))
-		sb.WriteString(" " + lipgloss.NewStyle().Width(cadWidth).Render("") + " ")
-		sb.WriteString(border.Render("│"))
 		sb.WriteString(" " + lipgloss.NewStyle().Width(idrWidth).Render("") + " ")
+		sb.WriteString(border.Render("│"))
+		sb.WriteString(" " + lipgloss.NewStyle().Width(cadWidth).Render("") + " ")
 		sb.WriteString(border.Render("│"))
 		sb.WriteString("\n")
 	} else {
@@ -1423,52 +1499,51 @@ func (m EditorModel) renderTableWithWidth(panelWidth, maxRows int) string {
 
 		for i := startIdx; i < endIdx; i++ {
 			entry := m.entries[i]
-			sb.WriteString(m.renderTableRowWithWidth(i, entry, descWidth, cadWidth, idrWidth))
+			sb.WriteString(m.renderTableRowWithWidth(i, entry, descWidth, idrWidth, cadWidth))
 			sb.WriteString("\n")
 		}
 	}
 
 	// Separator before totals
-	sb.WriteString(border.Render("├" + strings.Repeat("─", cursorWidth) + "┼" + strings.Repeat("─", descWidth+2) + "┼" + strings.Repeat("─", cadWidth+2) + "┼" + strings.Repeat("─", idrWidth+2) + "┤"))
+	sb.WriteString(border.Render("├" + strings.Repeat("─", descWidth+2) + "┼" + strings.Repeat("─", idrWidth+2) + "┼" + strings.Repeat("─", cadWidth+2) + "┤"))
 	sb.WriteString("\n")
 
 	// Totals row
-	sb.WriteString(m.tableRenderer.RenderTotalsRowWithWidth(m.day, m.search.GetQuery(), descWidth, cadWidth, idrWidth))
+	sb.WriteString(m.tableRenderer.RenderTotalsRowWithWidth(m.day, m.search.GetQuery(), descWidth, idrWidth, cadWidth))
 	sb.WriteString("\n")
 
 	// Bottom border
-	sb.WriteString(border.Render("└" + strings.Repeat("─", cursorWidth) + "┴" + strings.Repeat("─", descWidth+2) + "┴" + strings.Repeat("─", cadWidth+2) + "┴" + strings.Repeat("─", idrWidth+2) + "┘"))
+	sb.WriteString(border.Render("└" + strings.Repeat("─", descWidth+2) + "┴" + strings.Repeat("─", idrWidth+2) + "┴" + strings.Repeat("─", cadWidth+2) + "┘"))
 
 	return sb.String()
 }
 
 func (m EditorModel) renderTableRow(idx int, entry *ledger.Entry, descWidth int) string {
-	return m.renderTableRowWithWidth(idx, entry, descWidth, 14, 16)
+	return m.renderTableRowWithWidth(idx, entry, descWidth, 16, 14)
 }
 
-func (m EditorModel) renderTableRowWithWidth(idx int, entry *ledger.Entry, descWidth, cadWidth, idrWidth int) string {
+func (m EditorModel) renderTableRowWithWidth(idx int, entry *ledger.Entry, descWidth, idrWidth, cadWidth int) string {
 	var sb strings.Builder
 	border := m.styles.TableBorder
 
 	isSelected := idx == m.selectedRow
 	isEditing := m.mode == EditorModeInlineEdit && isSelected
 
-	// Cursor column - always exactly 3 chars: space + char + space
+	// Description column - add prefix to indicate selection
 	sb.WriteString(border.Render("│"))
-	if isSelected {
-		sb.WriteString(" ► ")
-	} else {
-		sb.WriteString("   ")
-	}
-	sb.WriteString(border.Render("│"))
-
-	// Description column - truncate to fit
 	if isEditing && m.selectedCol == ColDescription {
 		m.editInput.Width = descWidth
 		inputView := m.editInput.View()
 		sb.WriteString(" " + lipgloss.NewStyle().Width(descWidth).Render(inputView) + " ")
 	} else {
 		descDisplay := truncateStr(entry.Description, descWidth)
+		// Add "► " prefix for selected row
+		if isSelected {
+			if len(descDisplay) > descWidth-2 {
+				descDisplay = truncateStr(descDisplay, descWidth-2)
+			}
+			descDisplay = "► " + descDisplay
+		}
 		if isSelected && m.selectedCol == ColDescription {
 			sb.WriteString(" " + m.styles.TableRowSelected.Width(descWidth).Render(descDisplay) + " ")
 		} else {
@@ -1477,29 +1552,7 @@ func (m EditorModel) renderTableRowWithWidth(idx int, entry *ledger.Entry, descW
 	}
 	sb.WriteString(border.Render("│"))
 
-	// CAD column
-	if isEditing && m.selectedCol == ColCAD {
-		m.editInput.Width = cadWidth - 1 // Account for $
-		inputView := m.editInput.View()
-		// Static $ prefix + editable number
-		sb.WriteString(" $" + lipgloss.NewStyle().Width(cadWidth-1).Render(inputView) + " ")
-	} else {
-		cadDisplay := formatCurrency(entry.CAD, "CAD")
-		cadStyle := m.styles.ValueNeutral
-		if entry.CAD > 0 {
-			cadStyle = m.styles.ValuePositive
-		} else if entry.CAD < 0 {
-			cadStyle = m.styles.ValueNegative
-		}
-		if isSelected && m.selectedCol == ColCAD {
-			sb.WriteString(" " + m.styles.TableRowSelected.Width(cadWidth).Render(cadDisplay) + " ")
-		} else {
-			sb.WriteString(" " + cadStyle.Width(cadWidth).Render(cadDisplay) + " ")
-		}
-	}
-	sb.WriteString(border.Render("│"))
-
-	// IDR column
+	// IDR column (now first)
 	if isEditing && m.selectedCol == ColIDR {
 		m.editInput.Width = idrWidth - 3 // Account for "Rp "
 		inputView := m.editInput.View()
@@ -1521,11 +1574,33 @@ func (m EditorModel) renderTableRowWithWidth(idx int, entry *ledger.Entry, descW
 	}
 	sb.WriteString(border.Render("│"))
 
+	// CAD column (now second)
+	if isEditing && m.selectedCol == ColCAD {
+		m.editInput.Width = cadWidth - 1 // Account for $
+		inputView := m.editInput.View()
+		// Static $ prefix + editable number
+		sb.WriteString(" $" + lipgloss.NewStyle().Width(cadWidth-1).Render(inputView) + " ")
+	} else {
+		cadDisplay := formatCurrency(entry.CAD, "CAD")
+		cadStyle := m.styles.ValueNeutral
+		if entry.CAD > 0 {
+			cadStyle = m.styles.ValuePositive
+		} else if entry.CAD < 0 {
+			cadStyle = m.styles.ValueNegative
+		}
+		if isSelected && m.selectedCol == ColCAD {
+			sb.WriteString(" " + m.styles.TableRowSelected.Width(cadWidth).Render(cadDisplay) + " ")
+		} else {
+			sb.WriteString(" " + cadStyle.Width(cadWidth).Render(cadDisplay) + " ")
+		}
+	}
+	sb.WriteString(border.Render("│"))
+
 	return sb.String()
 }
 
 func (m EditorModel) renderTotalsRow(descWidth int) string {
-	return m.tableRenderer.RenderTotalsRowWithWidth(m.day, m.search.GetQuery(), descWidth, 14, 16)
+	return m.tableRenderer.RenderTotalsRowWithWidth(m.day, m.search.GetQuery(), descWidth, 16, 14)
 }
 
 func (m EditorModel) renderHelp() string {
@@ -1540,9 +1615,9 @@ func (m EditorModel) renderHelp() string {
 				m.styles.HelpKey.Render("Enter") + m.styles.HelpDesc.Render(" save  ") +
 				m.styles.HelpKey.Render("Esc") + m.styles.HelpDesc.Render(" cancel")
 		}
-		// CAD/IDR columns
+		// IDR/CAD columns
 		if m.isNewEntry && !m.hasTypedInCell {
-			return m.styles.HelpKey.Render("←/→") + m.styles.HelpDesc.Render(" switch CAD/IDR  ") +
+			return m.styles.HelpKey.Render("←/→") + m.styles.HelpDesc.Render(" switch IDR/CAD  ") +
 				m.styles.HelpKey.Render("Enter") + m.styles.HelpDesc.Render(" save  ") +
 				m.styles.HelpKey.Render("Esc") + m.styles.HelpDesc.Render(" cancel")
 		}
